@@ -1,0 +1,428 @@
+import {
+  LayoutDashboard,
+  FileText,
+  Users,
+  Building2,
+  BarChart3,
+  Settings,
+  ClipboardList,
+  Calendar,
+  UserCog,
+  Shield,
+  History,
+  Bed,
+  AlertTriangle,
+  UserCheck,
+  Siren,
+  ArrowLeftRight,
+  FileWarning,
+  Wrench,
+  Package,
+  Activity,
+  GraduationCap,
+  HeartPulse,
+  ListTodo,
+  MessageSquare,
+  Phone,
+  Clock,
+  Award,
+  Gauge,
+  CalendarDays,
+  Megaphone,
+  BookOpen,
+  Star,
+  DollarSign,
+  TableProperties,
+  Contact,
+  Archive,
+  GitPullRequestArrow,
+  Bell,
+  UtensilsCrossed,
+  UserX,
+  ClipboardCheck,
+  type LucideIcon,
+} from 'lucide-react'
+export interface NavItem {
+  title: string
+  titleAr: string
+  href: string
+  icon: LucideIcon
+  permission?: string   // uses new permission key system (e.g. 'dashboard.view')
+  children?: NavItem[]
+}
+
+export interface NavGroup {
+  title: string
+  titleAr: string
+  items: NavItem[]
+}
+
+export const navigationConfig: NavGroup[] = [
+  {
+    title: 'Overview',
+    titleAr: 'نظرة عامة',
+    items: [
+      {
+        title: 'Dashboard',
+        titleAr: 'لوحة التحكم',
+        href: '/dashboard',
+        icon: LayoutDashboard,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Staff Portal',
+        titleAr: 'بوابة الموظف',
+        href: '/staff-portal',
+        icon: UserCheck,
+        permission: 'dashboard.view',
+      },
+    ],
+  },
+  {
+    title: 'HR Management',
+    titleAr: 'الموارد البشرية',
+    items: [
+      {
+        title: 'Employees',
+        titleAr: 'الموظفون',
+        href: '/employees',
+        icon: Users,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Roster',
+        titleAr: 'الروستر / المناوبات',
+        href: '/roster',
+        icon: TableProperties,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Payroll',
+        titleAr: 'كشف الرواتب',
+        href: '/payroll',
+        icon: DollarSign,
+        permission: 'staff.manage',
+      },
+      {
+        title: 'Vacations',
+        titleAr: 'الإجازات',
+        href: '/vacations',
+        icon: CalendarDays,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Attendance',
+        titleAr: 'الحضور والغياب',
+        href: '/staff/attendance',
+        icon: UserCheck,
+        permission: 'staff.manage',
+      },
+      {
+        title: 'Overtime',
+        titleAr: 'العمل الإضافي',
+        href: '/staff/overtime',
+        icon: Clock,
+        permission: 'staff.manage',
+      },
+      {
+        title: 'Appraisals',
+        titleAr: 'تقييم الأداء',
+        href: '/appraisals',
+        icon: Star,
+        permission: 'staff.manage',
+      },
+      {
+        title: 'Monthly Roster',
+        titleAr: 'الروستر الشهري',
+        href: '/monthly-roster',
+        icon: TableProperties,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Preferences',
+        titleAr: 'رغبات الشيفت',
+        href: '/preferences',
+        icon: ClipboardCheck,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Leave & Absence',
+        titleAr: 'الإجازات والغياب',
+        href: '/leave-absence',
+        icon: CalendarDays,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Absence Report',
+        titleAr: 'تقرير الغياب',
+        href: '/absence',
+        icon: UserX,
+        permission: 'staff.manage',
+      },
+      {
+        title: 'Meals',
+        titleAr: 'إدارة الوجبات',
+        href: '/meals',
+        icon: UtensilsCrossed,
+        permission: 'dashboard.view',
+      },
+    ],
+  },
+  {
+    title: 'Departments & Patients',
+    titleAr: 'الأقسام والمرضى',
+    items: [
+      {
+        title: 'Departments',
+        titleAr: 'الأقسام',
+        href: '/departments',
+        icon: Building2,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Bed Management',
+        titleAr: 'إدارة الأسرة',
+        href: '/departments/beds',
+        icon: Bed,
+        permission: 'departments.manage',
+      },
+      {
+        title: 'Isolation Cases',
+        titleAr: 'حالات العزل',
+        href: '/departments/isolation',
+        icon: AlertTriangle,
+        permission: 'dashboard.view',
+      },
+    ],
+  },
+  {
+    title: 'Emergency',
+    titleAr: 'الطوارئ',
+    items: [
+      {
+        title: 'Emergency Codes',
+        titleAr: 'أكواد الطوارئ',
+        href: '/emergency',
+        icon: Siren,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Quick Response',
+        titleAr: 'الاستجابة السريعة',
+        href: '/emergency/response',
+        icon: Phone,
+        permission: 'dashboard.view',
+      },
+    ],
+  },
+  {
+    title: 'Patient Care',
+    titleAr: 'رعاية المرضى',
+    items: [
+      {
+        title: 'Handover (SBAR)',
+        titleAr: 'تسليم المناوبة',
+        href: '/handover',
+        icon: ArrowLeftRight,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Early Warning Score',
+        titleAr: 'نظام الإنذار المبكر',
+        href: '/ews',
+        icon: Gauge,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Vital Signs',
+        titleAr: 'العلامات الحيوية',
+        href: '/vitals',
+        icon: HeartPulse,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Tasks',
+        titleAr: 'المهام',
+        href: '/tasks',
+        icon: ListTodo,
+        permission: 'dashboard.view',
+      },
+    ],
+  },
+  {
+    title: 'Safety & Quality',
+    titleAr: 'السلامة والجودة',
+    items: [
+      {
+        title: 'Incident Reports',
+        titleAr: 'تقارير الحوادث',
+        href: '/incidents',
+        icon: FileWarning,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Quality Indicators',
+        titleAr: 'مؤشرات الجودة',
+        href: '/quality',
+        icon: Activity,
+        permission: 'analytics.view',
+      },
+    ],
+  },
+  {
+    title: 'Communication',
+    titleAr: 'التواصل والمعلومات',
+    items: [
+      {
+        title: 'Announcements',
+        titleAr: 'الإعلانات',
+        href: '/announcements',
+        icon: Megaphone,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Messages',
+        titleAr: 'الرسائل',
+        href: '/messages',
+        icon: MessageSquare,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Policies',
+        titleAr: 'السياسات والإجراءات',
+        href: '/policies',
+        icon: BookOpen,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Contact Hub',
+        titleAr: 'دليل الاتصالات',
+        href: '/contact',
+        icon: Contact,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Notifications',
+        titleAr: 'الإشعارات',
+        href: '/notifications',
+        icon: Bell,
+        permission: 'dashboard.view',
+      },
+    ],
+  },
+  {
+    title: 'Resources',
+    titleAr: 'الموارد والتدريب',
+    items: [
+      {
+        title: 'Training',
+        titleAr: 'التدريب',
+        href: '/training',
+        icon: GraduationCap,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Equipment',
+        titleAr: 'المعدات',
+        href: '/equipment',
+        icon: Wrench,
+        permission: 'departments.manage',
+      },
+      {
+        title: 'Inventory',
+        titleAr: 'المخزون',
+        href: '/inventory',
+        icon: Package,
+        permission: 'departments.manage',
+      },
+      {
+        title: 'Maintenance',
+        titleAr: 'طلبات الصيانة',
+        href: '/maintenance',
+        icon: Settings,
+        permission: 'dashboard.view',
+      },
+    ],
+  },
+  {
+    title: 'Reports & Analytics',
+    titleAr: 'التقارير والتحليلات',
+    items: [
+      {
+        title: 'Create Report',
+        titleAr: 'إنشاء تقرير',
+        href: '/reports/create',
+        icon: ClipboardList,
+        permission: 'reports.create',
+      },
+      {
+        title: 'Reports Archive',
+        titleAr: 'أرشيف التقارير',
+        href: '/reports',
+        icon: FileText,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Analytics',
+        titleAr: 'التحليلات',
+        href: '/analytics',
+        icon: BarChart3,
+        permission: 'analytics.view',
+      },
+    ],
+  },
+  {
+    title: 'Workflows',
+    titleAr: 'الطلبات والموافقات',
+    items: [
+      {
+        title: 'Workflows & Approvals',
+        titleAr: 'الطلبات والموافقات',
+        href: '/workflows',
+        icon: GitPullRequestArrow,
+        permission: 'dashboard.view',
+      },
+      {
+        title: 'Archive',
+        titleAr: 'الأرشيف',
+        href: '/archive',
+        icon: Archive,
+        permission: 'dashboard.view',
+      },
+    ],
+  },
+  {
+    title: 'Administration',
+    titleAr: 'الإدارة والنظام',
+    items: [
+      {
+        title: 'User Management',
+        titleAr: 'إدارة المستخدمين',
+        href: '/admin/users',
+        icon: UserCog,
+        permission: 'users.view',
+      },
+      {
+        title: 'Roles & Permissions',
+        titleAr: 'الصلاحيات',
+        href: '/admin/roles',
+        icon: Shield,
+        permission: 'roles.manage',
+      },
+      {
+        title: 'Audit Logs',
+        titleAr: 'سجل العمليات',
+        href: '/admin/logs',
+        icon: History,
+        permission: 'logs.view',
+      },
+      {
+        title: 'Settings',
+        titleAr: 'إعدادات النظام',
+        href: '/admin/settings',
+        icon: Settings,
+        permission: 'users.view',
+      },
+    ],
+  },
+]
