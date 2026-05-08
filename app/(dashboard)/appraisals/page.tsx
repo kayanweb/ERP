@@ -1,205 +1,298 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from 'sonner'
-import { Plus, Edit, Trash2, Download, Star, Award } from 'lucide-react'
+import { Plus, Edit, Trash2, Download, Star, Award, RefreshCw, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { evaluationsService } from '@/lib/services/evaluations.service'
+import { employeesService } from '@/lib/services/employees.service'
+import { departmentsService } from '@/lib/services/departments.service'
+import type { EvaluationRecord, EmployeeRecord } from '@/lib/repositories/contracts'
 
-type AppraisalStatus = 'draft' | 'submitted' | 'approved'
+type AppraisalStatus = 'draft' | 'submitted' | 'acknowledged'
 type AppraisalPeriod = 'H1' | 'H2' | 'annual'
 
 interface Criterion {
-  key: string
-  label: string
+  category: string
   score: number
-  maxScore: number
+  weight: number
+  comments?: string
 }
 
-interface Appraisal {
-  id: string
-  empId: string
-  empName: string
-  title: string
-  unit: string
-  period: AppraisalPeriod
-  year: number
-  criteria: Criterion[]
-  totalScore: number
-  maxTotal: number
-  grade: string
-  comments: string
-  evaluatorName: string
-  status: AppraisalStatus
-  createdAt: string
-}
-
-const DEFAULT_CRITERIA: Omit<Criterion, 'score'>[] = [
-  { key: 'technical',     label: 'المهارات التقنية',       maxScore: 25 },
-  { key: 'communication', label: 'مهارات التواصل',         maxScore: 20 },
-  { key: 'teamwork',      label: 'العمل الجماعي',           maxScore: 20 },
-  { key: 'punctuality',   label: 'الانضباط والمواظبة',     maxScore: 15 },
-  { key: 'initiative',    label: 'المبادرة والإبداع',       maxScore: 10 },
-  { key: 'patient_care',  label: 'جودة رعاية المريض',      maxScore: 10 },
+const DEFAULT_CRITERIA: Omit<Criterion, 'score' | 'comments'>[] = [
+  { category: 'المهارات التقنية', weight: 25 },
+  { category: 'مهارات التواصل', weight: 20 },
+  { category: 'العمل الجماعي', weight: 20 },
+  { category: 'الانضباط والمواظبة', weight: 15 },
+  { category: 'المبادرة والإبداع', weight: 10 },
+  { category: 'جودة رعاية المريض', weight: 10 },
 ]
 
-const calcGrade = (score: number, max: number): string => {
-  const pct = (score / max) * 100
-  if (pct >= 90) return 'ممتاز'
-  if (pct >= 80) return 'جيد جداً'
-  if (pct >= 70) return 'جيد'
-  if (pct >= 60) return 'مقبول'
+const calcGrade = (score: number): string => {
+  if (score >= 4.5) return 'ممتاز'
+  if (score >= 3.5) return 'جيد جداً'
+  if (score >= 2.5) return 'جيد'
+  if (score >= 1.5) return 'مقبول'
   return 'ضعيف'
 }
 
 const GRADE_COLOR: Record<string, string> = {
-  'ممتاز':    'bg-green-100 text-green-700',
-  'جيد جداً': 'bg-blue-100 text-blue-700',
-  'جيد':      'bg-cyan-100 text-cyan-700',
-  'مقبول':    'bg-amber-100 text-amber-700',
-  'ضعيف':     'bg-red-100 text-red-700',
+  'ممتاز': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  'جيد جداً': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  'جيد': 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+  'مقبول': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  'ضعيف': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
 }
 
 const STATUS_CONFIG: Record<AppraisalStatus, { label: string; color: string }> = {
-  draft:     { label: 'مسودة', color: 'bg-gray-100 text-gray-600' },
-  submitted: { label: 'مُقدَّم', color: 'bg-amber-100 text-amber-700' },
-  approved:  { label: 'معتمد', color: 'bg-green-100 text-green-700' },
+  draft: { label: 'مسودة', color: 'bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-300' },
+  submitted: { label: 'مُقدَّم', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+  acknowledged: { label: 'معتمد', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
 }
 
 const PERIODS: Record<AppraisalPeriod, string> = {
   H1: 'النصف الأول', H2: 'النصف الثاني', annual: 'سنوي'
 }
 
-function makeSample(): Appraisal[] {
-  const emp = [
-    { id:'E001', name:'سارة أحمد محمد', title:'CN', unit:'ICU' },
-    { id:'E002', name:'فاطمة خالد', title:'SN', unit:'ICU' },
-    { id:'E003', name:'نورة سعيد', title:'SN', unit:'ER' },
-  ]
-  const scores = [[23,18,17,14,9,9],[20,16,15,13,7,8],[22,17,16,13,8,9]]
-  return emp.map((e, i) => {
-    const criteria = DEFAULT_CRITERIA.map((c, j) => ({ ...c, score: scores[i][j] }))
-    const totalScore = criteria.reduce((s, c) => s + c.score, 0)
-    const maxTotal = criteria.reduce((s, c) => s + c.maxScore, 0)
-    return {
-      id: String(i+1), empId: e.id, empName: e.name, title: e.title, unit: e.unit,
-      period: 'H1', year: 2025, criteria, totalScore, maxTotal,
-      grade: calcGrade(totalScore, maxTotal),
-      comments: 'أداء متميز وملتزم بمعايير الجودة.',
-      evaluatorName: 'رئيسة قسم ICU',
-      status: i === 0 ? 'approved' : i === 1 ? 'submitted' : 'draft',
-      createdAt: '2025-07-01',
-    }
-  })
+interface FormData {
+  employeeId: string
+  employeeName: string
+  departmentId: string
+  period: string
+  criteria: Criterion[]
+  evaluatorName: string
+  strengths: string
+  areasForImprovement: string
+  goals: string
+  status: AppraisalStatus
 }
 
-const SAMPLE = makeSample()
+const EMPTY_CRITERIA = DEFAULT_CRITERIA.map(c => ({ ...c, score: 3, comments: '' }))
 
-const EMPTY_CRITERIA = DEFAULT_CRITERIA.map(c => ({ ...c, score: 0 }))
+const EMPTY_FORM: FormData = {
+  employeeId: '',
+  employeeName: '',
+  departmentId: '',
+  period: new Date().getFullYear() + '-H1',
+  criteria: EMPTY_CRITERIA,
+  evaluatorName: '',
+  strengths: '',
+  areasForImprovement: '',
+  goals: '',
+  status: 'draft',
+}
 
 export default function AppraisalsPage() {
-  const [appraisals, setAppraisals] = useState<Appraisal[]>(SAMPLE)
+  const [appraisals, setAppraisals] = useState<EvaluationRecord[]>([])
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([])
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [filterYear, setFilterYear] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [deleteId, setDeleteId] = useState<string|null>(null)
-  const [viewItem, setViewItem] = useState<Appraisal|null>(null)
-  const [editing, setEditing] = useState<string|null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [viewItem, setViewItem] = useState<EvaluationRecord | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [form, setForm] = useState<FormData>(EMPTY_FORM)
 
-  const [empName, setEmpName] = useState('')
-  const [empTitle, setEmpTitle] = useState('SN')
-  const [empUnit, setEmpUnit] = useState('ICU')
-  const [period, setPeriod] = useState<AppraisalPeriod>('H1')
-  const [year, setYear] = useState(2025)
-  const [criteria, setCriteria] = useState<Criterion[]>(EMPTY_CRITERIA)
-  const [evaluatorName, setEvaluatorName] = useState('')
-  const [comments, setComments] = useState('')
-  const [status, setStatus] = useState<AppraisalStatus>('draft')
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [evals, emps, depts] = await Promise.all([
+        evaluationsService.getAll(),
+        employeesService.getAll(),
+        departmentsService.getAll()
+      ])
+      setAppraisals(evals)
+      setEmployees(emps)
+      setDepartments(depts.map(d => ({ id: d.id, name: d.nameAr || d.name })))
+    } catch (error) {
+      console.error('Error loading data:', error)
+      toast.error('حدث خطأ في تحميل البيانات')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   const filtered = useMemo(() => appraisals.filter(a => {
-    if (filterYear !== 'all' && a.year !== Number(filterYear)) return false
+    if (filterYear !== 'all' && !a.period.startsWith(filterYear)) return false
     if (filterStatus !== 'all' && a.status !== filterStatus) return false
     return true
   }), [appraisals, filterYear, filterStatus])
 
   const stats = useMemo(() => ({
     total: appraisals.length,
-    approved: appraisals.filter(a => a.status === 'approved').length,
-    avgScore: appraisals.length ? Math.round(appraisals.reduce((s, a) => s + (a.totalScore / a.maxTotal) * 100, 0) / appraisals.length) : 0,
-    excellent: appraisals.filter(a => a.grade === 'ممتاز').length,
+    acknowledged: appraisals.filter(a => a.status === 'acknowledged').length,
+    avgScore: appraisals.length ? (appraisals.reduce((s, a) => s + a.overallScore, 0) / appraisals.length).toFixed(1) : '0',
+    excellent: appraisals.filter(a => a.overallScore >= 4.5).length,
   }), [appraisals])
 
+  const calculateOverallScore = (criteria: Criterion[]): number => {
+    const totalWeight = criteria.reduce((sum, c) => sum + c.weight, 0)
+    const weightedSum = criteria.reduce((sum, c) => sum + (c.score * c.weight), 0)
+    return weightedSum / totalWeight
+  }
+
   const openAdd = () => {
-    setEditing(null); setEmpName(''); setEmpTitle('SN'); setEmpUnit('ICU'); setPeriod('H1'); setYear(2025)
-    setCriteria(EMPTY_CRITERIA); setEvaluatorName(''); setComments(''); setStatus('draft'); setDialogOpen(true)
+    setEditing(null)
+    setForm(EMPTY_FORM)
+    setDialogOpen(true)
   }
 
-  const openEdit = (a: Appraisal) => {
-    setEditing(a.id); setEmpName(a.empName); setEmpTitle(a.title); setEmpUnit(a.unit); setPeriod(a.period); setYear(a.year)
-    setCriteria([...a.criteria.map(c => ({...c}))]); setEvaluatorName(a.evaluatorName); setComments(a.comments); setStatus(a.status); setDialogOpen(true)
+  const openEdit = (a: EvaluationRecord) => {
+    setEditing(a.id)
+    setForm({
+      employeeId: a.employeeId,
+      employeeName: a.employeeName,
+      departmentId: a.departmentId,
+      period: a.period,
+      criteria: a.categories as Criterion[],
+      evaluatorName: a.evaluatorName,
+      strengths: a.strengths || '',
+      areasForImprovement: a.areasForImprovement || '',
+      goals: a.goals || '',
+      status: a.status as AppraisalStatus,
+    })
+    setDialogOpen(true)
   }
 
-  const totalScore = criteria.reduce((s, c) => s + c.score, 0)
-  const maxTotal = criteria.reduce((s, c) => s + c.maxScore, 0)
-  const currentGrade = calcGrade(totalScore, maxTotal)
-
-  const handleSave = () => {
-    if (!empName) { toast.error('اسم الموظف مطلوب'); return }
-    const rec: Appraisal = {
-      id: editing || Date.now().toString(), empId: '', empName, title: empTitle, unit: empUnit,
-      period, year, criteria: criteria.map(c => ({...c})), totalScore, maxTotal,
-      grade: currentGrade, comments, evaluatorName, status, createdAt: new Date().toISOString().split('T')[0],
+  const handleEmployeeChange = (empId: string) => {
+    const emp = employees.find(e => e.id === empId)
+    if (emp) {
+      setForm(p => ({
+        ...p,
+        employeeId: emp.id,
+        employeeName: emp.nameAr,
+        departmentId: emp.departmentId,
+      }))
     }
-    if (editing) {
-      setAppraisals(prev => prev.map(a => a.id === editing ? rec : a))
-      toast.success('تم تعديل التقييم')
-    } else {
-      setAppraisals(prev => [...prev, rec])
-      toast.success('تم حفظ التقييم')
-    }
-    setDialogOpen(false)
   }
 
-  const handleDelete = () => {
+  const updateCriterionScore = (index: number, score: number) => {
+    setForm(p => ({
+      ...p,
+      criteria: p.criteria.map((c, i) => i === index ? { ...c, score } : c)
+    }))
+  }
+
+  const overallScore = calculateOverallScore(form.criteria)
+  const currentGrade = calcGrade(overallScore)
+
+  const handleSave = async () => {
+    if (!form.employeeId) {
+      toast.error('يرجى اختيار الموظف')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const data = {
+        employeeId: form.employeeId,
+        employeeName: form.employeeName,
+        departmentId: form.departmentId,
+        evaluatorId: 'current-user',
+        evaluatorName: form.evaluatorName || 'المشرف',
+        period: form.period,
+        evaluationDate: new Date().toISOString().split('T')[0],
+        overallScore,
+        categories: form.criteria,
+        strengths: form.strengths,
+        areasForImprovement: form.areasForImprovement,
+        goals: form.goals,
+        status: form.status,
+      }
+
+      if (editing) {
+        await evaluationsService.update(editing, data)
+        toast.success('تم تعديل التقييم')
+      } else {
+        await evaluationsService.create(data)
+        toast.success('تم حفظ التقييم')
+      }
+      setDialogOpen(false)
+      loadData()
+    } catch (error) {
+      console.error('Error saving evaluation:', error)
+      toast.error('حدث خطأ في حفظ البيانات')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
     if (!deleteId) return
-    setAppraisals(prev => prev.filter(a => a.id !== deleteId))
-    toast.success('تم حذف التقييم')
-    setDeleteId(null)
+    try {
+      await evaluationsService.delete(deleteId)
+      toast.success('تم حذف التقييم')
+      setDeleteId(null)
+      loadData()
+    } catch (error) {
+      console.error('Error deleting evaluation:', error)
+      toast.error('حدث خطأ في الحذف')
+    }
   }
 
   const handleExport = () => {
-    const header = 'الاسم,الرتبة,الوحدة,الفترة,السنة,الدرجة,التقدير,الحالة,المقيِّم'
-    const rows = filtered.map(a => `${a.empName},${a.title},${a.unit},${PERIODS[a.period]},${a.year},${a.totalScore}/${a.maxTotal},${a.grade},${STATUS_CONFIG[a.status].label},${a.evaluatorName}`)
+    const header = 'الاسم,القسم,الفترة,الدرجة,التقدير,الحالة,المقيِّم'
+    const rows = filtered.map(a =>
+      `${a.employeeName},${a.departmentId},${a.period},${a.overallScore.toFixed(2)},${calcGrade(a.overallScore)},${STATUS_CONFIG[a.status as AppraisalStatus]?.label},${a.evaluatorName}`
+    )
     const blob = new Blob(['\uFEFF' + [header, ...rows].join('\n')], { type: 'text/csv' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'appraisals.csv'; a.click()
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = 'appraisals.csv'
+    link.click()
     toast.success('تم تصدير التقييمات')
   }
 
-  const ScoreBar = ({ score, max }: { score: number; max: number }) => (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 bg-muted rounded-full h-1.5">
-        <div className="bg-primary rounded-full h-1.5 transition-all" style={{ width: `${(score/max)*100}%` }}/>
+  if (loading) {
+    return (
+      <div className="space-y-5">
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20" />)}
+        </div>
+        <Skeleton className="h-96" />
       </div>
-      <span className="text-xs font-mono w-10 text-right">{score}/{max}</span>
-    </div>
-  )
+    )
+  }
 
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div><h1 className="text-2xl font-bold">تقييم الأداء</h1><p className="text-sm text-muted-foreground">تقييمات الكادر التمريضي الدورية</p></div>
+        <div>
+          <h1 className="text-2xl font-bold">تقييم الأداء</h1>
+          <p className="text-sm text-muted-foreground">تقييمات الكادر التمريضي الدورية</p>
+        </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4 ml-1"/>تصدير</Button>
-          <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 ml-1"/>تقييم جديد</Button>
+          <Button variant="outline" size="sm" onClick={loadData}>
+            <RefreshCw className="h-4 w-4 ml-1" />تحديث
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="h-4 w-4 ml-1" />تصدير
+          </Button>
+          <Button size="sm" onClick={openAdd}>
+            <Plus className="h-4 w-4 ml-1" />تقييم جديد
+          </Button>
         </div>
       </div>
 
@@ -207,77 +300,102 @@ export default function AppraisalsPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'إجمالي التقييمات', val: stats.total, color: 'text-foreground', suffix: '' },
-          { label: 'معتمدة', val: stats.approved, color: 'text-green-600', suffix: '' },
-          { label: 'متوسط الأداء', val: stats.avgScore, color: 'text-blue-600', suffix: '%' },
+          { label: 'معتمدة', val: stats.acknowledged, color: 'text-green-600', suffix: '' },
+          { label: 'متوسط الأداء', val: stats.avgScore, color: 'text-blue-600', suffix: '/5' },
           { label: 'تقدير ممتاز', val: stats.excellent, color: 'text-amber-600', suffix: '' },
         ].map(s => (
-          <Card key={s.label}><CardContent className="pt-4 pb-3 text-center"><p className={cn('text-3xl font-black', s.color)}>{s.val}{s.suffix}</p><p className="text-xs text-muted-foreground mt-1">{s.label}</p></CardContent></Card>
+          <Card key={s.label}>
+            <CardContent className="pt-4 pb-3 text-center">
+              <p className={cn('text-3xl font-black', s.color)}>{s.val}<span className="text-sm font-normal">{s.suffix}</span></p>
+              <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
       {/* Filters */}
-      <Card><CardContent className="pt-4 pb-3">
-        <div className="flex flex-wrap gap-3">
-          <Select value={filterYear} onValueChange={setFilterYear}>
-            <SelectTrigger className="w-28"><SelectValue placeholder="السنة"/></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">كل السنوات</SelectItem>
-              {[2024,2025,2026].map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-36"><SelectValue placeholder="الحالة"/></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">كل الحالات</SelectItem>
-              {Object.entries(STATUS_CONFIG).map(([k,v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </CardContent></Card>
+      <Card>
+        <CardContent className="pt-4 pb-3">
+          <div className="flex flex-wrap gap-3">
+            <Select value={filterYear} onValueChange={setFilterYear}>
+              <SelectTrigger className="w-28"><SelectValue placeholder="السنة" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">كل السنوات</SelectItem>
+                {[2024, 2025, 2026].map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="الحالة" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">كل الحالات</SelectItem>
+                {Object.entries(STATUS_CONFIG).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Table */}
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm">سجلات التقييم — {filtered.length} تقييم</CardTitle></CardHeader>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">سجلات التقييم — {filtered.length} تقييم</CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  {['#','الاسم','الرتبة','الوحدة','الفترة','السنة','الدرجة','التقدير','الحالة','المقيِّم','إجراءات'].map(h => (
+                  {['#', 'الاسم', 'القسم', 'الفترة', 'الدرجة', 'التقدير', 'الحالة', 'المقيِّم', 'إجراءات'].map(h => (
                     <TableHead key={h} className="text-xs">{h}</TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={11} className="text-center py-12 text-muted-foreground">لا توجد تقييمات</TableCell></TableRow>
-                )}
-                {filtered.map((a, i) => (
-                  <TableRow key={a.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setViewItem(a)}>
-                    <TableCell className="text-muted-foreground">{i+1}</TableCell>
-                    <TableCell className="font-semibold">{a.empName}</TableCell>
-                    <TableCell><Badge variant="outline" className="text-xs">{a.title}</Badge></TableCell>
-                    <TableCell className="text-sm">{a.unit}</TableCell>
-                    <TableCell className="text-sm">{PERIODS[a.period]}</TableCell>
-                    <TableCell className="font-mono">{a.year}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <span className="font-bold">{a.totalScore}</span>
-                        <span className="text-muted-foreground text-xs">/{a.maxTotal}</span>
-                        <span className="text-xs text-muted-foreground">({Math.round((a.totalScore/a.maxTotal)*100)}%)</span>
-                      </div>
-                    </TableCell>
-                    <TableCell><Badge className={cn('text-xs', GRADE_COLOR[a.grade])}><Star className="h-3 w-3 ml-1 inline"/>{a.grade}</Badge></TableCell>
-                    <TableCell><Badge className={cn('text-xs', STATUS_CONFIG[a.status].color)}>{STATUS_CONFIG[a.status].label}</Badge></TableCell>
-                    <TableCell className="text-sm">{a.evaluatorName}</TableCell>
-                    <TableCell onClick={e => e.stopPropagation()}>
-                      <div className="flex gap-1">
-                        <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => openEdit(a)}><Edit className="h-3 w-3"/></Button>
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-destructive" onClick={() => setDeleteId(a.id)}><Trash2 className="h-3 w-3"/></Button>
-                      </div>
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                      لا توجد تقييمات
                     </TableCell>
                   </TableRow>
-                ))}
+                )}
+                {filtered.map((a, i) => {
+                  const grade = calcGrade(a.overallScore)
+                  return (
+                    <TableRow key={a.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setViewItem(a)}>
+                      <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                      <TableCell className="font-semibold">{a.employeeName}</TableCell>
+                      <TableCell className="text-sm">{a.departmentId}</TableCell>
+                      <TableCell className="font-mono text-sm">{a.period}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <span className="font-bold">{a.overallScore.toFixed(2)}</span>
+                          <span className="text-muted-foreground text-xs">/5</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={cn('text-xs', GRADE_COLOR[grade])}>
+                          <Star className="h-3 w-3 ml-1 inline" />{grade}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={cn('text-xs', STATUS_CONFIG[a.status as AppraisalStatus]?.color)}>
+                          {STATUS_CONFIG[a.status as AppraisalStatus]?.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">{a.evaluatorName}</TableCell>
+                      <TableCell onClick={e => e.stopPropagation()}>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => openEdit(a)}>
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-destructive" onClick={() => setDeleteId(a.id)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
@@ -287,70 +405,99 @@ export default function AppraisalsPage() {
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editing ? 'تعديل تقييم الأداء' : 'تقييم أداء جديد'}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{editing ? 'تعديل تقييم الأداء' : 'تقييم أداء جديد'}</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 space-y-1"><Label className="text-xs">اسم الموظف *</Label><Input value={empName} onChange={e => setEmpName(e.target.value)}/></div>
-              <div className="space-y-1"><Label className="text-xs">الرتبة</Label>
-                <Select value={empTitle} onValueChange={setEmpTitle}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent><SelectItem value="CN">CN</SelectItem><SelectItem value="SN">SN</SelectItem><SelectItem value="NA">NA</SelectItem><SelectItem value="INT">INT</SelectItem></SelectContent>
+              <div className="col-span-2 space-y-1">
+                <Label className="text-xs">الموظف *</Label>
+                <Select value={form.employeeId} onValueChange={handleEmployeeChange}>
+                  <SelectTrigger><SelectValue placeholder="اختر الموظف" /></SelectTrigger>
+                  <SelectContent>
+                    {employees.filter(e => e.status === 'active').map(e => (
+                      <SelectItem key={e.id} value={e.id}>{e.nameAr}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1"><Label className="text-xs">الوحدة</Label>
-                <Select value={empUnit} onValueChange={setEmpUnit}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>{'ICU,ER,الباطنية,الجراحة'.split(',').map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+              <div className="space-y-1">
+                <Label className="text-xs">الفترة</Label>
+                <Select value={form.period} onValueChange={v => setForm(p => ({ ...p, period: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[2024, 2025, 2026].flatMap(y =>
+                      Object.entries(PERIODS).map(([k, v]) => (
+                        <SelectItem key={`${y}-${k}`} value={`${y}-${k}`}>{y} - {v}</SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1"><Label className="text-xs">الفترة</Label>
-                <Select value={period} onValueChange={v => setPeriod(v as AppraisalPeriod)}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>{Object.entries(PERIODS).map(([k,v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1"><Label className="text-xs">السنة</Label>
-                <Select value={String(year)} onValueChange={v => setYear(Number(v))}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>{[2024,2025,2026].map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+              <div className="space-y-1">
+                <Label className="text-xs">الحالة</Label>
+                <Select value={form.status} onValueChange={v => setForm(p => ({ ...p, status: v as AppraisalStatus }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                      <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
             </div>
 
             {/* Criteria */}
             <div className="space-y-3 border rounded-lg p-3 bg-muted/20">
-              <p className="text-xs font-bold text-muted-foreground uppercase">معايير التقييم</p>
-              {criteria.map((c, idx) => (
-                <div key={c.key} className="space-y-1">
+              <p className="text-xs font-bold text-muted-foreground uppercase">معايير التقييم (1-5)</p>
+              {form.criteria.map((c, idx) => (
+                <div key={c.category} className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs">{c.label}</Label>
-                    <span className="text-xs font-mono">{c.score}/{c.maxScore}</span>
+                    <Label className="text-xs">{c.category} ({c.weight}%)</Label>
+                    <span className="text-sm font-bold">{c.score}</span>
                   </div>
                   <input
-                    type="range" min={0} max={c.maxScore} value={c.score}
-                    onChange={e => setCriteria(prev => prev.map((x, i) => i === idx ? {...x, score: Number(e.target.value)} : x))}
+                    type="range"
+                    min={1}
+                    max={5}
+                    step={0.5}
+                    value={c.score}
+                    onChange={e => updateCriterionScore(idx, Number(e.target.value))}
                     className="w-full accent-primary"
                   />
                 </div>
               ))}
               <div className="flex items-center justify-between pt-2 border-t">
-                <span className="text-sm font-bold">المجموع: {totalScore}/{maxTotal}</span>
-                <Badge className={cn('text-sm', GRADE_COLOR[currentGrade])}><Award className="h-3 w-3 ml-1 inline"/>{currentGrade}</Badge>
+                <span className="text-sm font-bold">التقييم الإجمالي: {overallScore.toFixed(2)}/5</span>
+                <Badge className={cn('text-sm', GRADE_COLOR[currentGrade])}>
+                  <Award className="h-3 w-3 ml-1 inline" />{currentGrade}
+                </Badge>
               </div>
             </div>
 
-            <div className="space-y-1"><Label className="text-xs">المقيِّم</Label><Input value={evaluatorName} onChange={e => setEvaluatorName(e.target.value)}/></div>
-            <div className="space-y-1"><Label className="text-xs">ملاحظات وتوصيات</Label><Textarea rows={3} value={comments} onChange={e => setComments(e.target.value)} placeholder="ملاحظات المقيِّم وتوصياته..."/></div>
-            <div className="space-y-1"><Label className="text-xs">الحالة</Label>
-              <Select value={status} onValueChange={v => setStatus(v as AppraisalStatus)}>
-                <SelectTrigger><SelectValue/></SelectTrigger>
-                <SelectContent>{Object.entries(STATUS_CONFIG).map(([k,v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}</SelectContent>
-              </Select>
+            <div className="space-y-1">
+              <Label className="text-xs">المقيِّم</Label>
+              <Input value={form.evaluatorName} onChange={e => setForm(p => ({ ...p, evaluatorName: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">نقاط القوة</Label>
+              <Textarea rows={2} value={form.strengths} onChange={e => setForm(p => ({ ...p, strengths: e.target.value }))} placeholder="نقاط القوة..." />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">مجالات التحسين</Label>
+              <Textarea rows={2} value={form.areasForImprovement} onChange={e => setForm(p => ({ ...p, areasForImprovement: e.target.value }))} placeholder="مجالات تحتاج تطوير..." />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">الأهداف</Label>
+              <Textarea rows={2} value={form.goals} onChange={e => setForm(p => ({ ...p, goals: e.target.value }))} placeholder="أهداف الفترة القادمة..." />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>إلغاء</Button>
-            <Button onClick={handleSave}>{editing ? 'حفظ' : 'إضافة التقييم'}</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 ml-1 animate-spin" />}
+              {editing ? 'حفظ' : 'إضافة التقييم'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -361,40 +508,77 @@ export default function AppraisalsPage() {
           <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <div className="flex items-center gap-2 mb-1">
-                <Badge variant="outline" className="text-xs">{viewItem.title}</Badge>
-                <Badge variant="outline" className="text-xs">{viewItem.unit}</Badge>
-                <Badge className={cn('text-xs', STATUS_CONFIG[viewItem.status].color)}>{STATUS_CONFIG[viewItem.status].label}</Badge>
+                <Badge className={cn('text-xs', STATUS_CONFIG[viewItem.status as AppraisalStatus]?.color)}>
+                  {STATUS_CONFIG[viewItem.status as AppraisalStatus]?.label}
+                </Badge>
               </div>
-              <DialogTitle>{viewItem.empName}</DialogTitle>
-              <p className="text-sm text-muted-foreground">{PERIODS[viewItem.period]} {viewItem.year}</p>
+              <DialogTitle>{viewItem.employeeName}</DialogTitle>
+              <p className="text-sm text-muted-foreground">فترة: {viewItem.period}</p>
             </DialogHeader>
             <div className="space-y-3">
-              {viewItem.criteria.map(c => (
-                <div key={c.key}>
-                  <div className="flex justify-between text-xs mb-1"><span>{c.label}</span><span className="font-mono">{c.score}/{c.maxScore}</span></div>
+              {viewItem.categories.map(c => (
+                <div key={c.category}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span>{c.category}</span>
+                    <span className="font-mono">{c.score}/5</span>
+                  </div>
                   <div className="bg-muted rounded-full h-2">
-                    <div className="bg-primary rounded-full h-2" style={{ width: `${(c.score/c.maxScore)*100}%` }}/>
+                    <div className="bg-primary rounded-full h-2" style={{ width: `${(c.score / 5) * 100}%` }} />
                   </div>
                 </div>
               ))}
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                <div><p className="text-xs text-muted-foreground">الدرجة الكلية</p><p className="text-2xl font-black">{viewItem.totalScore}<span className="text-sm text-muted-foreground">/{viewItem.maxTotal}</span></p></div>
-                <Badge className={cn('text-lg px-3 py-1', GRADE_COLOR[viewItem.grade])}>{viewItem.grade}</Badge>
+                <div>
+                  <p className="text-xs text-muted-foreground">الدرجة الكلية</p>
+                  <p className="text-2xl font-black">
+                    {viewItem.overallScore.toFixed(2)}
+                    <span className="text-sm text-muted-foreground">/5</span>
+                  </p>
+                </div>
+                <Badge className={cn('text-lg px-3 py-1', GRADE_COLOR[calcGrade(viewItem.overallScore)])}>
+                  {calcGrade(viewItem.overallScore)}
+                </Badge>
               </div>
-              {viewItem.comments && <div><p className="text-xs text-muted-foreground mb-1">ملاحظات المقيِّم</p><p className="text-sm bg-muted/30 p-2 rounded">{viewItem.comments}</p></div>}
-              <p className="text-xs text-muted-foreground">قيّمه: {viewItem.evaluatorName} · {viewItem.createdAt}</p>
+              {viewItem.strengths && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">نقاط القوة</p>
+                  <p className="text-sm">{viewItem.strengths}</p>
+                </div>
+              )}
+              {viewItem.areasForImprovement && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">مجالات التحسين</p>
+                  <p className="text-sm">{viewItem.areasForImprovement}</p>
+                </div>
+              )}
+              {viewItem.goals && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">الأهداف</p>
+                  <p className="text-sm">{viewItem.goals}</p>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground">
+                المقيِّم: {viewItem.evaluatorName}
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setViewItem(null)}>إغلاق</Button>
-              <Button onClick={() => { openEdit(viewItem); setViewItem(null) }}><Edit className="h-4 w-4 ml-1"/>تعديل</Button>
             </DialogFooter>
           </DialogContent>
         )}
       </Dialog>
 
+      {/* Delete Confirm */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>تأكيد الحذف</AlertDialogTitle><AlertDialogDescription>سيتم حذف هذا التقييم نهائياً.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>إلغاء</AlertDialogCancel><AlertDialogAction className="bg-destructive" onClick={handleDelete}>حذف</AlertDialogAction></AlertDialogFooter>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>تأكيد الحذف</AlertDialogTitle>
+            <AlertDialogDescription>هل أنت متأكد من حذف هذا التقييم؟ لا يمكن التراجع.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive" onClick={handleDelete}>حذف</AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

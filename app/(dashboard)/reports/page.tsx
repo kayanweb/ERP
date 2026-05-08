@@ -2,11 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Plus, Eye, FileText, Filter, Download } from 'lucide-react'
+import { Plus, Eye, FileText, Filter, Download, RefreshCw, Loader2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -16,67 +17,33 @@ import {
 } from '@/components/ui/select'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { DataTable, Column } from '@/components/ui/data-table'
-
-// Demo data - will be replaced with Firebase
-const reports = [
-  {
-    id: '1',
-    date: '2024-01-15',
-    shift: 'morning' as const,
-    supervisor: 'أحمد محمد',
-    status: 'approved' as const,
-    totalPatients: 57,
-    totalStaff: 45,
-    createdAt: '2024-01-15T07:00:00Z',
-  },
-  {
-    id: '2',
-    date: '2024-01-15',
-    shift: 'evening' as const,
-    supervisor: 'سارة علي',
-    status: 'submitted' as const,
-    totalPatients: 62,
-    totalStaff: 42,
-    createdAt: '2024-01-15T15:00:00Z',
-  },
-  {
-    id: '3',
-    date: '2024-01-14',
-    shift: 'night' as const,
-    supervisor: 'محمد حسن',
-    status: 'approved' as const,
-    totalPatients: 55,
-    totalStaff: 38,
-    createdAt: '2024-01-14T23:00:00Z',
-  },
-  {
-    id: '4',
-    date: '2024-01-14',
-    shift: 'morning' as const,
-    supervisor: 'فاطمة أحمد',
-    status: 'approved' as const,
-    totalPatients: 58,
-    totalStaff: 44,
-    createdAt: '2024-01-14T07:00:00Z',
-  },
-  {
-    id: '5',
-    date: '2024-01-13',
-    shift: 'evening' as const,
-    supervisor: 'أحمد محمد',
-    status: 'draft' as const,
-    totalPatients: 54,
-    totalStaff: 41,
-    createdAt: '2024-01-13T15:00:00Z',
-  },
-]
-
-type Report = (typeof reports)[0]
+import { toast } from 'sonner'
+import { shiftReportsService } from '@/lib/services/shift-reports.service'
+import type { ShiftReportRecord } from '@/lib/repositories/contracts'
 
 export default function ReportsArchivePage() {
+  const [reports, setReports] = React.useState<ShiftReportRecord[]>([])
+  const [loading, setLoading] = React.useState(true)
   const [dateFilter, setDateFilter] = React.useState('')
   const [shiftFilter, setShiftFilter] = React.useState<string>('all')
   const [statusFilter, setStatusFilter] = React.useState<string>('all')
+
+  const loadReports = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await shiftReportsService.getAll()
+      setReports(data)
+    } catch (error) {
+      console.error('Error loading reports:', error)
+      toast.error('حدث خطأ في تحميل التقارير')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    loadReports()
+  }, [loadReports])
 
   const filteredReports = React.useMemo(() => {
     return reports.filter((report) => {
@@ -85,9 +52,29 @@ export default function ReportsArchivePage() {
       if (statusFilter !== 'all' && report.status !== statusFilter) return false
       return true
     })
-  }, [dateFilter, shiftFilter, statusFilter])
+  }, [reports, dateFilter, shiftFilter, statusFilter])
 
-  const columns: Column<Report>[] = [
+  const stats = React.useMemo(() => ({
+    total: reports.length,
+    approved: reports.filter(r => r.status === 'approved').length,
+    submitted: reports.filter(r => r.status === 'submitted').length,
+    draft: reports.filter(r => r.status === 'draft').length,
+  }), [reports])
+
+  const handleExport = () => {
+    const header = 'التاريخ,الشفت,المشرف,عدد المرضى,عدد الكادر,الحالة'
+    const rows = filteredReports.map(r => 
+      `${r.date},${r.shift},${r.supervisorName || ''},${r.totalPatients},${r.staffCount},${r.status}`
+    )
+    const blob = new Blob(['\uFEFF' + [header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = 'shift-reports.csv'
+    link.click()
+    toast.success('تم تصدير التقارير')
+  }
+
+  const columns: Column<ShiftReportRecord>[] = [
     {
       key: 'date',
       header: 'التاريخ',
@@ -107,15 +94,16 @@ export default function ReportsArchivePage() {
       cell: (row) => <StatusBadge status={row.shift} />,
     },
     {
-      key: 'supervisor',
+      key: 'supervisorName',
       header: 'المشرف',
+      cell: (row) => row.supervisorName || '—'
     },
     {
       key: 'totalPatients',
       header: 'المرضى',
     },
     {
-      key: 'totalStaff',
+      key: 'staffCount',
       header: 'الكادر',
     },
     {
@@ -139,6 +127,21 @@ export default function ReportsArchivePage() {
     },
   ]
 
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20" />)}
+        </div>
+        <Skeleton className="h-96" />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -149,12 +152,51 @@ export default function ReportsArchivePage() {
             عرض وإدارة جميع تقارير المناوبات
           </p>
         </div>
-        <Button asChild>
-          <Link href="/reports/create">
-            <Plus className="h-4 w-4 ml-2" />
-            تقرير جديد
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={loadReports}>
+            <RefreshCw className="h-4 w-4 ml-2" />
+            تحديث
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="h-4 w-4 ml-2" />
+            تصدير
+          </Button>
+          <Button asChild>
+            <Link href="/reports/create">
+              <Plus className="h-4 w-4 ml-2" />
+              تقرير جديد
+            </Link>
+          </Button>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-4 text-center">
+            <FileText className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+            <p className="text-2xl font-bold">{stats.total}</p>
+            <p className="text-xs text-muted-foreground">إجمالي التقارير</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 text-center">
+            <p className="text-2xl font-bold text-green-600">{stats.approved}</p>
+            <p className="text-xs text-muted-foreground">معتمدة</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 text-center">
+            <p className="text-2xl font-bold text-amber-600">{stats.submitted}</p>
+            <p className="text-xs text-muted-foreground">مُرسلة</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 text-center">
+            <p className="text-2xl font-bold text-gray-600">{stats.draft}</p>
+            <p className="text-xs text-muted-foreground">مسودة</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Filters */}
@@ -223,13 +265,25 @@ export default function ReportsArchivePage() {
       {/* Reports Table */}
       <Card>
         <CardContent className="pt-6">
-          <DataTable
-            columns={columns}
-            data={filteredReports}
-            searchKey="supervisor"
-            searchPlaceholder="البحث بالمشرف..."
-            emptyMessage="لا توجد تقارير مطابقة للفلاتر المحددة"
-          />
+          {filteredReports.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <FileText className="h-12 w-12 mx-auto mb-4 opacity-30" />
+              <p>لا توجد تقارير مطابقة للفلاتر المحددة</p>
+              <Button variant="outline" className="mt-4" asChild>
+                <Link href="/reports/create">
+                  <Plus className="h-4 w-4 ml-1" />إنشاء تقرير جديد
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <DataTable
+              columns={columns}
+              data={filteredReports}
+              searchKey="supervisorName"
+              searchPlaceholder="البحث بالمشرف..."
+              emptyMessage="لا توجد تقارير مطابقة للفلاتر المحددة"
+            />
+          )}
         </CardContent>
       </Card>
     </div>
