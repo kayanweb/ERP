@@ -1,11 +1,11 @@
-'use client'
+"use client"
 
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useState, useEffect, useCallback } from "react"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -13,17 +13,16 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Handover } from '@/types'
+} from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   ArrowLeftRight,
   Plus,
@@ -36,140 +35,188 @@ import {
   Stethoscope,
   ClipboardList,
   MessageSquare,
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
-
-// Sample handover data
-const sampleHandovers: Handover[] = [
-  {
-    id: '1',
-    patientId: 'P001',
-    patientName: 'محمد أحمد علي',
-    mrn: 'MRN-2024-001',
-    department: 'ICU',
-    fromNurse: 'سارة محمد',
-    toNurse: 'فاطمة أحمد',
-    shift: 'morning',
-    date: '2024-01-15',
-    situation: 'مريض 65 سنة، يعاني من قصور في الجهاز التنفسي، على جهاز التنفس الصناعي منذ 3 أيام',
-    background: 'تم إدخاله بسبب التهاب رئوي حاد. تاريخ مرضي: سكري، ضغط دم مرتفع. حساسية من البنسلين',
-    assessment: 'العلامات الحيوية مستقرة. SpO2 94% على FiO2 40%. درجة الوعي: مستجيب للأوامر الصوتية',
-    recommendation: 'متابعة العلامات الحيوية كل ساعة. تحضير للفطام من جهاز التنفس. مراجعة نتائج الأشعة الصباحية',
-    criticalAlerts: ['حساسية البنسلين', 'خطر السقوط'],
-    pendingTasks: ['صورة أشعة الساعة 10', 'تحليل غازات الدم', 'زيارة الطبيب'],
-    status: 'pending',
-  },
-  {
-    id: '2',
-    patientId: 'P002',
-    patientName: 'أحمد سعيد',
-    mrn: 'MRN-2024-002',
-    department: 'الجراحة',
-    fromNurse: 'نورة علي',
-    toNurse: 'هدى محمد',
-    shift: 'evening',
-    date: '2024-01-15',
-    situation: 'مريض 45 سنة، ما بعد عملية استئصال المرارة بالمنظار',
-    background: 'العملية تمت بنجاح أمس. لا تاريخ مرضي سابق. لا حساسية معروفة',
-    assessment: 'الجرح نظيف وجاف. الألم 3/10 مع المسكنات. بدأ المشي',
-    recommendation: 'متابعة الجرح. تشجيع على المشي. تحضير للخروج غداً',
-    criticalAlerts: [],
-    pendingTasks: ['إزالة القسطرة', 'تعليمات الخروج'],
-    status: 'acknowledged',
-  },
-]
+  Loader2,
+  Eye,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { toast } from "sonner"
+import { handoverService, HandoverWithDetails } from "@/lib/services/handover.service"
+import { patientsService } from "@/lib/services/patients.service"
+import { employeesService } from "@/lib/services/employees.service"
+import { departmentsService } from "@/lib/services/departments.service"
+import type { PatientRecord, EmployeeRecord, Department, ShiftType } from "@/lib/repositories/contracts"
 
 const shiftLabels = {
-  morning: { label: 'صباحي', color: 'bg-amber-500' },
-  evening: { label: 'مسائي', color: 'bg-blue-500' },
-  night: { label: 'ليلي', color: 'bg-indigo-500' },
+  morning: { label: "صباحي", color: "bg-amber-500" },
+  evening: { label: "مسائي", color: "bg-blue-500" },
+  night: { label: "ليلي", color: "bg-indigo-500" },
 }
 
 export default function HandoverPage() {
-  const [handovers, setHandovers] = useState<Handover[]>(sampleHandovers)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [filterShift, setFilterShift] = useState<string>('all')
+  const [handovers, setHandovers] = useState<HandoverWithDetails[]>([])
+  const [patients, setPatients] = useState<PatientRecord[]>([])
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [filterShift, setFilterShift] = useState<string>("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [selectedHandover, setSelectedHandover] = useState<Handover | null>(null)
+  const [selectedHandover, setSelectedHandover] = useState<HandoverWithDetails | null>(null)
+
   const [newHandover, setNewHandover] = useState({
-    patientName: '',
-    mrn: '',
-    department: '',
-    toNurse: '',
-    shift: 'morning' as 'morning' | 'evening' | 'night',
-    situation: '',
-    background: '',
-    assessment: '',
-    recommendation: '',
-    criticalAlerts: '',
-    pendingTasks: '',
+    patientId: "",
+    departmentId: "",
+    fromNurseId: "",
+    toNurseId: "",
+    shift: "morning" as ShiftType,
+    situation: "",
+    background: "",
+    assessment: "",
+    recommendation: "",
+    criticalAlerts: "",
+    pendingTasks: "",
+    medications: "",
+    allergies: "",
   })
 
-  const pendingHandovers = handovers.filter((h) => h.status === 'pending')
-  const acknowledgedHandovers = handovers.filter((h) => h.status === 'acknowledged')
-  const completedHandovers = handovers.filter((h) => h.status === 'completed')
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true)
+      const [handoversData, patientsData, employeesData, departmentsData] = await Promise.all([
+        handoverService.getAll(),
+        patientsService.getAdmitted(),
+        employeesService.getAll(),
+        departmentsService.getAll(),
+      ])
+      setHandovers(handoversData)
+      setPatients(patientsData)
+      setEmployees(employeesData)
+      setDepartments(departmentsData)
+    } catch (error) {
+      console.error("Error loading data:", error)
+      toast.error("حدث خطأ أثناء تحميل البيانات")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  const pendingHandovers = handovers.filter((h) => h.status === "pending")
+  const acknowledgedHandovers = handovers.filter((h) => h.status === "acknowledged")
+  const completedHandovers = handovers.filter((h) => h.status === "completed")
 
   const filteredHandovers = handovers.filter((h) => {
     const matchesSearch =
-      h.patientName.includes(searchQuery) ||
-      h.mrn.includes(searchQuery) ||
-      h.department.includes(searchQuery)
-    const matchesShift = filterShift === 'all' || h.shift === filterShift
+      h.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      h.mrn.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      h.departmentName.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesShift = filterShift === "all" || h.shift === filterShift
     return matchesSearch && matchesShift
   })
 
-  const handleAcknowledge = (id: string) => {
-    setHandovers(
-      handovers.map((h) =>
-        h.id === id ? { ...h, status: 'acknowledged' as const } : h
-      )
-    )
-  }
-
-  const handleComplete = (id: string) => {
-    setHandovers(
-      handovers.map((h) =>
-        h.id === id ? { ...h, status: 'completed' as const } : h
-      )
-    )
-  }
-
-  const handleCreateHandover = () => {
-    const handover: Handover = {
-      id: Date.now().toString(),
-      patientId: `P${Date.now()}`,
-      patientName: newHandover.patientName,
-      mrn: newHandover.mrn,
-      department: newHandover.department,
-      fromNurse: 'المستخدم الحالي',
-      toNurse: newHandover.toNurse,
-      shift: newHandover.shift,
-      date: new Date().toISOString().split('T')[0],
-      situation: newHandover.situation,
-      background: newHandover.background,
-      assessment: newHandover.assessment,
-      recommendation: newHandover.recommendation,
-      criticalAlerts: newHandover.criticalAlerts
-        .split('\n')
-        .filter((a) => a.trim()),
-      pendingTasks: newHandover.pendingTasks.split('\n').filter((t) => t.trim()),
-      status: 'pending',
+  const handleAcknowledge = async (id: string) => {
+    try {
+      await handoverService.acknowledge(id)
+      toast.success("تم تأكيد استلام التسليم")
+      loadData()
+    } catch (error) {
+      console.error("Error acknowledging handover:", error)
+      toast.error("حدث خطأ أثناء تأكيد الاستلام")
     }
-    setHandovers([handover, ...handovers])
-    setIsDialogOpen(false)
+  }
+
+  const handleComplete = async (id: string) => {
+    try {
+      await handoverService.complete(id)
+      toast.success("تم إكمال التسليم بنجاح")
+      loadData()
+    } catch (error) {
+      console.error("Error completing handover:", error)
+      toast.error("حدث خطأ أثناء إكمال التسليم")
+    }
+  }
+
+  const handleCreateHandover = async () => {
+    if (!newHandover.patientId || !newHandover.fromNurseId || !newHandover.toNurseId) {
+      toast.error("يرجى ملء جميع الحقول المطلوبة")
+      return
+    }
+
+    if (newHandover.fromNurseId === newHandover.toNurseId) {
+      toast.error("لا يمكن التسليم لنفس الممرض")
+      return
+    }
+
+    try {
+      setSaving(true)
+      const patient = patients.find((p) => p.id === newHandover.patientId)
+      const fromNurse = employees.find((e) => e.id === newHandover.fromNurseId)
+      const toNurse = employees.find((e) => e.id === newHandover.toNurseId)
+      const department = departments.find((d) => d.id === newHandover.departmentId)
+
+      await handoverService.create({
+        patientId: newHandover.patientId,
+        patientName: patient?.name || "",
+        mrn: patient?.mrn || "",
+        departmentId: newHandover.departmentId,
+        departmentName: department?.name || "",
+        fromNurseId: newHandover.fromNurseId,
+        fromNurseName: fromNurse?.name || "",
+        toNurseId: newHandover.toNurseId,
+        toNurseName: toNurse?.name || "",
+        shift: newHandover.shift,
+        date: new Date().toISOString().split("T")[0],
+        situation: newHandover.situation,
+        background: newHandover.background,
+        assessment: newHandover.assessment,
+        recommendation: newHandover.recommendation,
+        criticalAlerts: newHandover.criticalAlerts ? newHandover.criticalAlerts.split("\n").filter(Boolean) : undefined,
+        pendingTasks: newHandover.pendingTasks ? newHandover.pendingTasks.split("\n").filter(Boolean) : undefined,
+        medications: newHandover.medications ? newHandover.medications.split("\n").filter(Boolean) : undefined,
+        allergies: newHandover.allergies ? newHandover.allergies.split("\n").filter(Boolean) : undefined,
+        status: "pending",
+      })
+
+      toast.success("تم إنشاء تقرير التسليم بنجاح")
+      setIsDialogOpen(false)
+      resetForm()
+      loadData()
+    } catch (error) {
+      console.error("Error creating handover:", error)
+      toast.error("حدث خطأ أثناء إنشاء تقرير التسليم")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const resetForm = () => {
     setNewHandover({
-      patientName: '',
-      mrn: '',
-      department: '',
-      toNurse: '',
-      shift: 'morning',
-      situation: '',
-      background: '',
-      assessment: '',
-      recommendation: '',
-      criticalAlerts: '',
-      pendingTasks: '',
+      patientId: "",
+      departmentId: "",
+      fromNurseId: "",
+      toNurseId: "",
+      shift: "morning",
+      situation: "",
+      background: "",
+      assessment: "",
+      recommendation: "",
+      criticalAlerts: "",
+      pendingTasks: "",
+      medications: "",
+      allergies: "",
     })
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
   }
 
   return (
@@ -178,11 +225,9 @@ export default function HandoverPage() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">تسليم المناوبة (SBAR)</h1>
-          <p className="text-muted-foreground">
-            نظام التواصل الموحد لتسليم المرضى بين المناوبات
-          </p>
+          <p className="text-muted-foreground">نظام التواصل الموحد لتسليم المرضى بين المناوبات</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
+        <Button onClick={() => { resetForm(); setIsDialogOpen(true) }} className="gap-2">
           <Plus className="h-4 w-4" />
           تسليم جديد
         </Button>
@@ -304,53 +349,83 @@ export default function HandoverPage() {
 
       {/* Create Handover Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>تسليم مريض جديد (SBAR)</DialogTitle>
-            <DialogDescription>
-              أدخل معلومات التسليم باستخدام نموذج SBAR
-            </DialogDescription>
+            <DialogDescription>أدخل معلومات التسليم باستخدام نموذج SBAR</DialogDescription>
           </DialogHeader>
           <div className="space-y-6 py-4">
             {/* Patient Info */}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>اسم المريض *</Label>
-                <Input
-                  value={newHandover.patientName}
-                  onChange={(e) =>
-                    setNewHandover({ ...newHandover, patientName: e.target.value })
-                  }
-                  placeholder="الاسم الكامل"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>رقم الملف الطبي *</Label>
-                <Input
-                  value={newHandover.mrn}
-                  onChange={(e) =>
-                    setNewHandover({ ...newHandover, mrn: e.target.value })
-                  }
-                  placeholder="MRN-XXXX-XXX"
-                />
-              </div>
-              <div className="space-y-2">
                 <Label>القسم *</Label>
                 <Select
-                  value={newHandover.department}
-                  onValueChange={(value) =>
-                    setNewHandover({ ...newHandover, department: value })
-                  }
+                  value={newHandover.departmentId}
+                  onValueChange={(value) => setNewHandover({ ...newHandover, departmentId: value, patientId: "" })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="اختر القسم" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ICU">العناية المركزة</SelectItem>
-                    <SelectItem value="ER">الطوارئ</SelectItem>
-                    <SelectItem value="الجراحة">الجراحة</SelectItem>
-                    <SelectItem value="الباطنية">الباطنية</SelectItem>
-                    <SelectItem value="الأطفال">الأطفال</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>المريض *</Label>
+                <Select
+                  value={newHandover.patientId}
+                  onValueChange={(value) => setNewHandover({ ...newHandover, patientId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر المريض" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {patients
+                      .filter((p) => !newHandover.departmentId || p.departmentId === newHandover.departmentId)
+                      .map((patient) => (
+                        <SelectItem key={patient.id} value={patient.id}>
+                          {patient.name} - {patient.mrn}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>الممرض المسلم *</Label>
+                <Select
+                  value={newHandover.fromNurseId}
+                  onValueChange={(value) => setNewHandover({ ...newHandover, fromNurseId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر الممرض" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees
+                      .filter((e) => e.role === "nurse" || e.role === "senior_nurse" || e.role === "head_nurse")
+                      .map((emp) => (
+                        <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>الممرض المستلم *</Label>
+                <Select
+                  value={newHandover.toNurseId}
+                  onValueChange={(value) => setNewHandover({ ...newHandover, toNurseId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر الممرض" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees
+                      .filter((e) => (e.role === "nurse" || e.role === "senior_nurse" || e.role === "head_nurse") && e.id !== newHandover.fromNurseId)
+                      .map((emp) => (
+                        <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -358,9 +433,7 @@ export default function HandoverPage() {
                 <Label>المناوبة *</Label>
                 <Select
                   value={newHandover.shift}
-                  onValueChange={(value: 'morning' | 'evening' | 'night') =>
-                    setNewHandover({ ...newHandover, shift: value })
-                  }
+                  onValueChange={(value: ShiftType) => setNewHandover({ ...newHandover, shift: value })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -378,64 +451,48 @@ export default function HandoverPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">
-                    S
-                  </span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">S</span>
                   الموقف (Situation) *
                 </Label>
                 <Textarea
                   value={newHandover.situation}
-                  onChange={(e) =>
-                    setNewHandover({ ...newHandover, situation: e.target.value })
-                  }
+                  onChange={(e) => setNewHandover({ ...newHandover, situation: e.target.value })}
                   placeholder="ما هو الوضع الحالي للمريض؟"
                   rows={2}
                 />
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">
-                    B
-                  </span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">B</span>
                   الخلفية (Background) *
                 </Label>
                 <Textarea
                   value={newHandover.background}
-                  onChange={(e) =>
-                    setNewHandover({ ...newHandover, background: e.target.value })
-                  }
+                  onChange={(e) => setNewHandover({ ...newHandover, background: e.target.value })}
                   placeholder="التاريخ المرضي، سبب الدخول، الحساسية..."
                   rows={2}
                 />
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">
-                    A
-                  </span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">A</span>
                   التقييم (Assessment) *
                 </Label>
                 <Textarea
                   value={newHandover.assessment}
-                  onChange={(e) =>
-                    setNewHandover({ ...newHandover, assessment: e.target.value })
-                  }
+                  onChange={(e) => setNewHandover({ ...newHandover, assessment: e.target.value })}
                   placeholder="العلامات الحيوية، الحالة العامة..."
                   rows={2}
                 />
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">
-                    R
-                  </span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">R</span>
                   التوصيات (Recommendation) *
                 </Label>
                 <Textarea
                   value={newHandover.recommendation}
-                  onChange={(e) =>
-                    setNewHandover({ ...newHandover, recommendation: e.target.value })
-                  }
+                  onChange={(e) => setNewHandover({ ...newHandover, recommendation: e.target.value })}
                   placeholder="ما المطلوب عمله؟"
                   rows={2}
                 />
@@ -451,9 +508,7 @@ export default function HandoverPage() {
                 </Label>
                 <Textarea
                   value={newHandover.criticalAlerts}
-                  onChange={(e) =>
-                    setNewHandover({ ...newHandover, criticalAlerts: e.target.value })
-                  }
+                  onChange={(e) => setNewHandover({ ...newHandover, criticalAlerts: e.target.value })}
                   placeholder="مثال: حساسية من البنسلين&#10;خطر السقوط"
                   rows={3}
                 />
@@ -465,31 +520,47 @@ export default function HandoverPage() {
                 </Label>
                 <Textarea
                   value={newHandover.pendingTasks}
-                  onChange={(e) =>
-                    setNewHandover({ ...newHandover, pendingTasks: e.target.value })
-                  }
+                  onChange={(e) => setNewHandover({ ...newHandover, pendingTasks: e.target.value })}
                   placeholder="مثال: تحليل دم الساعة 10&#10;زيارة الطبيب"
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>الأدوية الحالية (سطر لكل دواء)</Label>
+                <Textarea
+                  value={newHandover.medications}
+                  onChange={(e) => setNewHandover({ ...newHandover, medications: e.target.value })}
+                  placeholder="أدخل الأدوية..."
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>الحساسية (سطر لكل نوع)</Label>
+                <Textarea
+                  value={newHandover.allergies}
+                  onChange={(e) => setNewHandover({ ...newHandover, allergies: e.target.value })}
+                  placeholder="أدخل أنواع الحساسية..."
                   rows={3}
                 />
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              إلغاء
-            </Button>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>إلغاء</Button>
             <Button
               onClick={handleCreateHandover}
               disabled={
-                !newHandover.patientName ||
-                !newHandover.mrn ||
-                !newHandover.department ||
+                saving ||
+                !newHandover.patientId ||
+                !newHandover.fromNurseId ||
+                !newHandover.toNurseId ||
                 !newHandover.situation ||
                 !newHandover.background ||
                 !newHandover.assessment ||
                 !newHandover.recommendation
               }
             >
+              {saving && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
               إنشاء التسليم
             </Button>
           </DialogFooter>
@@ -497,10 +568,7 @@ export default function HandoverPage() {
       </Dialog>
 
       {/* View Handover Dialog */}
-      <Dialog
-        open={!!selectedHandover}
-        onOpenChange={() => setSelectedHandover(null)}
-      >
+      <Dialog open={!!selectedHandover} onOpenChange={() => setSelectedHandover(null)}>
         {selectedHandover && (
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
@@ -515,64 +583,57 @@ export default function HandoverPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-6 py-4">
+              {/* Transfer Info */}
+              <div className="flex items-center justify-center gap-4 p-4 bg-muted/50 rounded-lg">
+                <div className="text-center">
+                  <User className="h-8 w-8 mx-auto mb-1 text-muted-foreground" />
+                  <p className="font-medium">{selectedHandover.fromNurseName}</p>
+                  <p className="text-xs text-muted-foreground">المسلم</p>
+                </div>
+                <ArrowLeftRight className="h-6 w-6 text-primary" />
+                <div className="text-center">
+                  <User className="h-8 w-8 mx-auto mb-1 text-muted-foreground" />
+                  <p className="font-medium">{selectedHandover.toNurseName}</p>
+                  <p className="text-xs text-muted-foreground">المستلم</p>
+                </div>
+              </div>
+
               {/* SBAR Display */}
               <div className="space-y-4">
-                <SBARSection
-                  letter="S"
-                  title="الموقف (Situation)"
-                  content={selectedHandover.situation}
-                  icon={Stethoscope}
-                />
-                <SBARSection
-                  letter="B"
-                  title="الخلفية (Background)"
-                  content={selectedHandover.background}
-                  icon={FileText}
-                />
-                <SBARSection
-                  letter="A"
-                  title="التقييم (Assessment)"
-                  content={selectedHandover.assessment}
-                  icon={ClipboardList}
-                />
-                <SBARSection
-                  letter="R"
-                  title="التوصيات (Recommendation)"
-                  content={selectedHandover.recommendation}
-                  icon={MessageSquare}
-                />
+                <SBARSection letter="S" title="الموقف (Situation)" content={selectedHandover.situation} icon={Stethoscope} />
+                <SBARSection letter="B" title="الخلفية (Background)" content={selectedHandover.background} icon={FileText} />
+                <SBARSection letter="A" title="التقييم (Assessment)" content={selectedHandover.assessment} icon={ClipboardList} />
+                <SBARSection letter="R" title="التوصيات (Recommendation)" content={selectedHandover.recommendation} icon={MessageSquare} />
               </div>
 
               {/* Critical Alerts */}
-              {selectedHandover.criticalAlerts.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-semibold text-destructive flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    تنبيهات حرجة
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedHandover.criticalAlerts.map((alert, i) => (
-                      <Badge key={i} variant="destructive">
-                        {alert}
-                      </Badge>
-                    ))}
+              {selectedHandover.criticalAlerts && selectedHandover.criticalAlerts.length > 0 && (
+                <div className="p-4 border border-destructive/50 bg-destructive/10 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-5 w-5 text-destructive" />
+                    <h4 className="font-semibold text-destructive">تنبيهات حرجة</h4>
                   </div>
+                  <ul className="space-y-1">
+                    {selectedHandover.criticalAlerts.map((alert, i) => (
+                      <li key={i} className="text-sm text-destructive flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+                        {alert}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
               {/* Pending Tasks */}
-              {selectedHandover.pendingTasks.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-semibold flex items-center gap-2">
-                    <ClipboardList className="h-4 w-4" />
-                    مهام معلقة
-                  </h4>
+              {selectedHandover.pendingTasks && selectedHandover.pendingTasks.length > 0 && (
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ClipboardList className="h-5 w-5 text-primary" />
+                    <h4 className="font-semibold">مهام معلقة</h4>
+                  </div>
                   <ul className="space-y-1">
                     {selectedHandover.pendingTasks.map((task, i) => (
-                      <li
-                        key={i}
-                        className="flex items-center gap-2 text-sm text-muted-foreground"
-                      >
+                      <li key={i} className="text-sm flex items-center gap-2">
                         <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                         {task}
                       </li>
@@ -580,19 +641,31 @@ export default function HandoverPage() {
                   </ul>
                 </div>
               )}
+
+              {/* Allergies */}
+              {selectedHandover.allergies && selectedHandover.allergies.length > 0 && (
+                <div className="p-4 border border-orange-200 bg-orange-50 rounded-lg">
+                  <h4 className="font-semibold text-orange-700 mb-2">الحساسية</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedHandover.allergies.map((allergy, i) => (
+                      <Badge key={i} variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
+                        {allergy}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setSelectedHandover(null)}>
-                إغلاق
-              </Button>
-              {selectedHandover.status === 'pending' && (
-                <Button
-                  onClick={() => {
-                    handleAcknowledge(selectedHandover.id)
-                    setSelectedHandover(null)
-                  }}
-                >
+              <Button variant="outline" onClick={() => setSelectedHandover(null)}>إغلاق</Button>
+              {selectedHandover.status === "pending" && (
+                <Button onClick={() => { handleAcknowledge(selectedHandover.id); setSelectedHandover(null) }}>
                   تأكيد الاستلام
+                </Button>
+              )}
+              {selectedHandover.status === "acknowledged" && (
+                <Button onClick={() => { handleComplete(selectedHandover.id); setSelectedHandover(null) }}>
+                  إكمال التسليم
                 </Button>
               )}
             </DialogFooter>
@@ -603,99 +676,7 @@ export default function HandoverPage() {
   )
 }
 
-function HandoverCard({
-  handover,
-  onAcknowledge,
-  onComplete,
-  onView,
-}: {
-  handover: Handover
-  onAcknowledge: (id: string) => void
-  onComplete: (id: string) => void
-  onView: () => void
-}) {
-  const statusConfig = {
-    pending: { label: 'في الانتظار', variant: 'secondary' as const },
-    acknowledged: { label: 'تم الاستلام', variant: 'default' as const },
-    completed: { label: 'مكتمل', variant: 'outline' as const },
-  }
-
-  return (
-    <Card
-      className={cn(
-        'transition-all hover:shadow-md cursor-pointer',
-        handover.status === 'pending' && 'border-amber-200'
-      )}
-      onClick={onView}
-    >
-      <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-              <User className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-base">{handover.patientName}</CardTitle>
-              <CardDescription>
-                {handover.mrn} | {handover.department}
-              </CardDescription>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge className={shiftLabels[handover.shift].color}>
-              {shiftLabels[handover.shift].label}
-            </Badge>
-            <Badge variant={statusConfig[handover.status].variant}>
-              {statusConfig[handover.status].label}
-            </Badge>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground line-clamp-2">
-          <strong>الموقف:</strong> {handover.situation}
-        </p>
-        <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <User className="h-4 w-4" />
-            من: {handover.fromNurse}
-          </span>
-          <span className="flex items-center gap-1">
-            <ArrowLeftRight className="h-4 w-4" />
-            إلى: {handover.toNurse || 'غير محدد'}
-          </span>
-        </div>
-        {handover.criticalAlerts.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {handover.criticalAlerts.slice(0, 2).map((alert, i) => (
-              <Badge key={i} variant="destructive" className="text-xs">
-                {alert}
-              </Badge>
-            ))}
-            {handover.criticalAlerts.length > 2 && (
-              <Badge variant="outline" className="text-xs">
-                +{handover.criticalAlerts.length - 2}
-              </Badge>
-            )}
-          </div>
-        )}
-        <div className="flex gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
-          {handover.status === 'pending' && (
-            <Button size="sm" onClick={() => onAcknowledge(handover.id)}>
-              تأكيد الاستلام
-            </Button>
-          )}
-          {handover.status === 'acknowledged' && (
-            <Button size="sm" onClick={() => onComplete(handover.id)}>
-              إتمام التسليم
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
+// SBAR Section Component
 function SBARSection({
   letter,
   title,
@@ -708,17 +689,101 @@ function SBARSection({
   icon: React.ElementType
 }) {
   return (
-    <div className="rounded-lg border p-4">
-      <div className="flex items-center gap-3 mb-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded bg-primary text-sm text-primary-foreground font-bold">
+    <div className="p-4 border rounded-lg">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-xs text-primary-foreground font-bold">
           {letter}
         </span>
-        <h4 className="font-semibold flex items-center gap-2">
-          <Icon className="h-4 w-4 text-muted-foreground" />
-          {title}
-        </h4>
+        <Icon className="h-4 w-4 text-muted-foreground" />
+        <h4 className="font-semibold">{title}</h4>
       </div>
-      <p className="text-sm text-muted-foreground mr-11">{content}</p>
+      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{content}</p>
     </div>
+  )
+}
+
+// Handover Card Component
+function HandoverCard({
+  handover,
+  onAcknowledge,
+  onComplete,
+  onView,
+}: {
+  handover: HandoverWithDetails
+  onAcknowledge: (id: string) => void
+  onComplete: (id: string) => void
+  onView: () => void
+}) {
+  const statusConfig = {
+    pending: { label: "في الانتظار", variant: "outline" as const, color: "text-amber-600 border-amber-300 bg-amber-50" },
+    acknowledged: { label: "تم الاستلام", variant: "outline" as const, color: "text-blue-600 border-blue-300 bg-blue-50" },
+    completed: { label: "مكتمل", variant: "outline" as const, color: "text-green-600 border-green-300 bg-green-50" },
+  }
+
+  return (
+    <Card className={cn(handover.status === "pending" && "border-amber-200")}>
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle className="text-lg">{handover.patientName}</CardTitle>
+            <CardDescription>
+              {handover.mrn} | {handover.departmentName}
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge className={shiftLabels[handover.shift].color}>
+              {shiftLabels[handover.shift].label}
+            </Badge>
+            <Badge variant={statusConfig[handover.status].variant} className={statusConfig[handover.status].color}>
+              {statusConfig[handover.status].label}
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
+          <div className="flex items-center gap-1">
+            <User className="h-4 w-4" />
+            <span>من: {handover.fromNurseName}</span>
+          </div>
+          <ArrowLeftRight className="h-4 w-4" />
+          <div className="flex items-center gap-1">
+            <User className="h-4 w-4" />
+            <span>إلى: {handover.toNurseName}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Clock className="h-4 w-4" />
+            <span>{new Date(handover.date).toLocaleDateString("ar-SA")}</span>
+          </div>
+        </div>
+
+        {/* Critical Alerts Preview */}
+        {handover.criticalAlerts && handover.criticalAlerts.length > 0 && (
+          <div className="flex items-center gap-2 mb-4 p-2 bg-destructive/10 rounded text-destructive text-sm">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            <span className="truncate">{handover.criticalAlerts.join(" | ")}</span>
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onView}>
+            <Eye className="h-4 w-4 ml-1" />
+            عرض التفاصيل
+          </Button>
+          {handover.status === "pending" && (
+            <Button size="sm" onClick={() => onAcknowledge(handover.id)}>
+              <CheckCircle2 className="h-4 w-4 ml-1" />
+              تأكيد الاستلام
+            </Button>
+          )}
+          {handover.status === "acknowledged" && (
+            <Button size="sm" variant="default" onClick={() => onComplete(handover.id)}>
+              <CheckCircle2 className="h-4 w-4 ml-1" />
+              إكمال التسليم
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
